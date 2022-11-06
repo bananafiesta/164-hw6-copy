@@ -274,6 +274,77 @@ let rec compile_expr :
       | Lst [] ->
           [Mov (Reg Rax, operand_of_nil)]
 
+      | Lst [Sym "apply"; Sym f; expr] when is_defn defns f ->
+        let iterate_label = gensym "iterate" in 
+        let list_check_label = gensym "listcheck" in
+        let passed_check_label = gensym "passedlistcheck" in
+        let stack_base = align_stack_index (stack_index + 8) in 
+        (* let defn = get_defn defns f in  *)
+        (* let args_pusher : int -> directive list =
+          fun n ->
+            let repeat_label = gensym "repeat" in
+            let end_repeat_label = gensym "endrepeat" in
+            [Mov (Reg R11, Reg Rax)]
+            @ [Mov (Reg R10, Imm n)]
+            @ [Label repeat_label]
+            @ [Mov (Reg R8, Reg R11)]
+            @ [Mov (Reg )]
+            @ [Label end_repeat_label]
+        in *)
+
+        compile_expr defns tab stack_index expr
+        (* R11 stores address of current list element being checked *)
+        (* R10 keeps a counter of how many args were pushed to stack *)
+          @ [Mov (Reg R11, Reg Rax)]
+          (* @ [Mov (Reg R10, Imm 2)] *)
+          @ [Mov (Reg R10, Imm 3)]
+          @ [Jmp list_check_label]
+
+          (* move the right element of the pair into R11 and push left to stack *)
+          @ [Label iterate_label]
+          (* move current stack index in r8 *)
+          @ [Mov (Reg R8, Imm stack_base)]
+          @ [Add (Reg R8, Reg Rsp)]
+          (* use r9 to temporarily store 8 x r10 *)
+          @ [Mov (Reg R9, Reg R10)]
+          @ [Shl (Reg R9, Imm 3)]
+          (* set r8 to be address to push to *)
+          @ [Sub (Reg R8, Reg R9)]
+
+
+          (* move left element to r9 *)
+          @ [Mov (Reg R9, MemOffset (Reg R11, Imm (-pair_tag)))]
+          (* push to stack *)
+          @ [Mov (MemOffset (Reg R8, Imm 0), Reg R9)]
+          (* increment counter r10 *)
+          @ [Add (Reg R10, Imm 1)]
+          @ [Mov (Reg R11, MemOffset (Reg R11, Imm (-pair_tag + 8)))]
+
+          (* first check if r11 is a pair, if it is,
+             push the left element to stack and move the right element into r11 *)
+          @ [Label list_check_label]
+          @ [Mov (Reg R8, Reg R11)]
+          @ [And (Reg R8, Imm heap_mask)]
+          @ [Cmp (Reg R8, Imm pair_tag)]
+          @ [Je iterate_label]
+          (* else check if its nil *)
+          @ [Mov (Reg R8, Reg R11)]
+          @ [And (Reg R8, Imm nil_tag)]
+          @ [Cmp (Reg R8, Imm nil_tag)]
+          @ [Je passed_check_label]
+          @ [Jmp "lisp_error"]
+          
+          (* passed list check and args already pushed, call f *)
+          @ [Label passed_check_label]
+
+          (* first we push the number of args to the stack *)
+          @ [Sub (Reg R10, Imm 3)]
+          @ [Mov (MemOffset (Reg Rsp, Imm (stack_base - 16)), Reg R10)]
+          @ [Add (Reg Rsp, Imm stack_base)]
+          @ [Call (function_label f)]
+          @ [Sub (Reg Rsp, Imm stack_base)]
+
+
       | Lst [Sym "if"; test_expr; then_expr; else_expr] ->
           let then_label = gensym "then" in
           let else_label = gensym "else" in
@@ -345,11 +416,20 @@ let compile_defn : defn list -> defn -> directive list =
   fun defns defn ->
       let ftab =
         defn.args
-          |> List.mapi (fun i arg -> (arg, (i + 1) * -8))
+          (* |> List.mapi (fun i arg -> (arg, (i + 1) * -8)) *)
+          |> List.mapi (fun i arg -> (arg, (i + 2) * -8))
           |> Symtab.of_list
       in
       [Label (function_label defn.name)]
-        @ compile_expr defns ftab ((List.length defn.args + 1) * -8) defn.body
+      (* check that the correct number of args have been pushed, else lisp_error *)
+        @ [Mov (Reg R8, stack_address(-8))]
+        @ [Cmp (Reg R8, Imm (List.length defn.args))]
+        @ [Jne "lisp_error"]
+
+      (* end of error checking *)
+        (* @ compile_expr defns ftab ((List.length defn.args + 1) * -8) defn.body *)
+        (* account for an additional arg number pushed to stack *)
+        @ compile_expr defns ftab ((List.length defn.args + 2) * -8) defn.body
         @ [Ret]
 
 (** [compile exps] produces x86-64 instructions, including frontmatter, for the

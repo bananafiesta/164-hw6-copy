@@ -1,0 +1,5 @@
+(define (f x y) (+ x y)) (print (apply f (pair 1 (pair 2 ())))), 3
+(define (f x y) (+ x y)) (print (apply f (pair 1 2))), error
+(define (f x y) (+ x y)) (print (apply f 2)), error
+(define (f a b c d) (+ (+ a b) (+ c d))) (print (apply f (pair 3 (pair 4 (pair 5 (pair 6 ())))))), 18
+(define (f x y) (+ x y)) (print (apply f (pair 1 (pair 2 (pair 3 ()))))), error

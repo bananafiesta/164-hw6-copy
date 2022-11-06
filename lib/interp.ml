@@ -41,6 +41,30 @@ let rec display_value v =
         "()"
   end
 
+let rec is_list : value -> bool =
+  fun v ->
+    begin match v with
+      | Nil -> true
+      | Pair (_, y) -> is_list y
+      | _ -> false
+    end
+
+let rec list_len : value -> int -> int =
+  fun l counter ->
+    begin match l with
+      | Nil -> counter
+      | Pair (_, y) -> list_len y (counter + 1)
+      | _ -> -1
+    end
+
+let rec read_list : value -> value list -> value list =
+  fun currpair curroutput ->
+    begin match currpair with
+      | Nil -> curroutput
+      | Pair (x, y) -> (read_list y (List.rev_append (List.rev curroutput) [x]))
+      | _ -> []
+    end
+
 (** [interp_0ary_primitive prim] tries to evaluate the primitive operation
     named by [prim]. If [prim] does not refer to a valid primitive operation, it
     returns [None]. *)
@@ -160,6 +184,22 @@ let rec interp_expr : defn list -> environment -> s_exp -> value =
 
       | Lst [] ->
           Nil
+
+      | Lst [Sym "apply"; Sym f; expr] when is_defn defns f ->
+        let v = interp_expr defns env expr in 
+        if (not (is_list v)) then (raise (Error.Stuck e)) else
+        let arglen = list_len v 0 in 
+        let defn = get_defn defns f in 
+        if arglen = List.length defn.args then
+          let args = read_list v [] in
+          let fenv = args
+            |> List.combine defn.args
+            |> Symtab.of_list
+          in
+          interp_expr defns fenv defn.body
+        else
+          raise (Error.Stuck e)
+        
 
       | Lst [Sym "let"; Lst [Lst [Sym var; exp]]; body] ->
           let env = env |> Symtab.add var (interp_expr defns env exp) in
