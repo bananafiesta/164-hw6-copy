@@ -65,6 +65,15 @@ let rec read_list : value -> value list -> value list =
       | _ -> []
     end
 
+let rec ocaml_to_lisp : value list -> value =
+  fun vals ->
+    begin match vals with
+    | head :: tail ->
+      Pair (head, ocaml_to_lisp tail)
+    | [] ->
+      Nil
+    end
+
 (** [interp_0ary_primitive prim] tries to evaluate the primitive operation
     named by [prim]. If [prim] does not refer to a valid primitive operation, it
     returns [None]. *)
@@ -190,13 +199,36 @@ let rec interp_expr : defn list -> environment -> s_exp -> value =
         if (not (is_list v)) then (raise (Error.Stuck e)) else
         let arglen = list_len v 0 in 
         let defn = get_defn defns f in 
-        if arglen = List.length defn.args then
-          let args = read_list v [] in
+        let args = read_list v [] in
+        if Option.is_none defn.rest && arglen = List.length defn.args then
+          (* let args = read_list v [] in *)
           let fenv = args
             |> List.combine defn.args
             |> Symtab.of_list
           in
           interp_expr defns fenv defn.body
+        else
+        if Option.is_some defn.rest && List.length args >= List.length defn.args then
+          let to_bind = Option.get defn.rest in
+          let num_regular_args = List.length defn.args in
+          let evaled_args = args in
+          let is_regular_arg : int -> value -> bool = 
+            fun index _ ->
+              if index < num_regular_args then true else false
+          in
+          let regular_args = evaled_args |> List.filteri is_regular_arg in 
+          let is_variadic_arg : int -> value -> bool =
+            fun index _ ->
+              if index >= num_regular_args then true else false
+          in
+          let variadic_args = evaled_args |> List.filteri is_variadic_arg
+          in
+          let fenv = 
+            List.combine defn.args regular_args 
+            |> Symtab.of_list 
+            |> Symtab.add to_bind (ocaml_to_lisp variadic_args)
+          in
+        interp_expr defns fenv defn.body
         else
           raise (Error.Stuck e)
         
@@ -218,7 +250,9 @@ let rec interp_expr : defn list -> environment -> s_exp -> value =
 
       | Lst (Sym f :: args) when is_defn defns f ->
           let defn = get_defn defns f in
-          if List.length args = List.length defn.args then
+
+          (* if List.length args = List.length defn.args then *)
+          if Option.is_none defn.rest && List.length args = List.length defn.args then
             let fenv =
               args
                 |> List.map (interp_expr defns env)
@@ -226,6 +260,29 @@ let rec interp_expr : defn list -> environment -> s_exp -> value =
                 |> Symtab.of_list
             in
             interp_expr defns fenv defn.body
+          else
+          if Option.is_some defn.rest && List.length args >= List.length defn.args then
+            let to_bind = Option.get defn.rest in
+            let num_regular_args = List.length defn.args in
+            let evaled_args = List.map (interp_expr defns env) args in
+            let is_regular_arg : int -> value -> bool = 
+              fun index _ ->
+                if index < num_regular_args then true else false
+            in
+            let regular_args = evaled_args |> List.filteri is_regular_arg in 
+            let is_variadic_arg : int -> value -> bool =
+              fun index _ ->
+                if index >= num_regular_args then true else false
+            in
+            let variadic_args = evaled_args |> List.filteri is_variadic_arg
+            in
+            let fenv = 
+              List.combine defn.args regular_args 
+              |> Symtab.of_list 
+              |> Symtab.add to_bind (ocaml_to_lisp variadic_args)
+            in
+          interp_expr defns fenv defn.body
+            
           else
             raise (Error.Stuck e)
 

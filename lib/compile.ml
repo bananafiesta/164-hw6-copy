@@ -371,15 +371,17 @@ let rec compile_expr :
 
       | Lst (Sym f :: args) when is_defn defns f ->
           let stack_base = align_stack_index (stack_index + 8) in
-          let defn = get_defn defns f in
-          if List.length args = List.length defn.args then
+          (* let defn = get_defn defns f in *)
+          (* if Option.is_none defn.rest && List.length args = List.length defn.args then *)
             let compiled_args =
               args
                 |> List.mapi
                      ( fun i arg ->
-                         compile_expr defns tab (stack_base - ((i + 2) * 8)) arg
+                         (* compile_expr defns tab (stack_base - ((i + 2) * 8)) arg *)
+                         compile_expr defns tab (stack_base - ((i + 3) * 8)) arg
                            @ [ Mov
-                                 ( stack_address (stack_base - ((i + 2) * 8))
+                                 (* ( stack_address (stack_base - ((i + 2) * 8)) *)
+                                 ( stack_address (stack_base - ((i + 3) * 8))
                                  , Reg Rax
                                  )
                              ]
@@ -387,12 +389,22 @@ let rec compile_expr :
                 |> List.concat
             in
             compiled_args
+              (* also push the number of args pushed *)
+              @ [Mov (MemOffset (Reg Rsp, Imm (stack_base - 16)), Imm (List.length args))]
               @ [ Add (Reg Rsp, Imm stack_base)
                 ; Call (function_label f)
                 ; Sub (Reg Rsp, Imm stack_base)
                 ]
-          else
-            raise (Error.Stuck e)
+          (* else *)
+          (* if Option.is_some defn.rest && List.length args >= List.length defn.args then
+            let num_regular_args = List.length defn.args in 
+            let is_regular_arg : int -> s_exp -> bool =
+              fun index _ ->
+                if index < num_regular_args then true else false
+            let is_variadic_arg : int -> s_exp -> bool
+            []
+          else *)
+            (* raise (Error.Stuck e) *)
 
         | Lst [Sym f] ->
             compile_0ary_primitive stack_index e f
@@ -420,6 +432,63 @@ let compile_defn : defn list -> defn -> directive list =
           |> List.mapi (fun i arg -> (arg, (i + 2) * -8))
           |> Symtab.of_list
       in
+      if Option.is_some defn.rest then 
+        let variadic_ftab = Symtab.add (Option.get defn.rest) (((List.length defn.args) + 2) * -8) ftab in 
+        let continue_label = gensym "continue" in
+        let variadic_loop_label = gensym "variadicloop" in
+        [Label (function_label defn.name)]
+        @ [Mov (Reg R8, stack_address(-8))]
+        @ [Cmp (Reg R8, Imm (List.length defn.args))]
+        @ [Jl "lisp_error"]
+        
+        (* R9 will hold current arg index *)
+        @ [Mov (Reg R9, Imm (List.length defn.args))]
+        (* R8 will hold number of args pushed *)
+        @ [Cmp (Reg R8, Imm (List.length defn.args))]
+        @ [Mov (Reg R11, Reg Rdi)]
+        @ [Or (Reg R11, Imm pair_tag)]
+        @ [Mov (MemOffset (Reg Rsp, Imm (((List.length defn.args) + 2) * -8)), Reg R11)]
+        @ [Jg variadic_loop_label]
+        @ [Mov (Reg R11, Imm nil_tag)]
+        @ [Mov (MemOffset (Reg Rsp, Imm (((List.length defn.args) + 2) * -8)), Reg R11)]
+        @ [Jmp continue_label]
+
+        @ [Label variadic_loop_label]
+        (* R10 will act as a temp register to hold memory values *)
+        (* R8 will now store the current working pointer *)
+        (* @ [Mov (Reg R8, Reg Rdi)] *)
+        (* @ [Or (Reg R8, Imm pair_tag)] *)
+        @ [Mov (Reg R10, Reg Rdi)]
+        @ [Or (Reg R10, Imm pair_tag)]
+        @ [Mov (MemOffset (Reg R8, Imm 0), Reg R10)]
+        @ [Mov (Reg R11, Reg R9)]
+        @ [Shl (Reg R11, Imm 3)]
+        @ [Mov (Reg R10, Reg Rsp)]
+        @ [Sub (Reg R10, Reg R11)]
+        (* R10 now holds address of current index of stack *)
+        (* now add that to the left of the pair *)
+        @ [Mov (Reg R10, MemOffset (Reg R10, Imm 0))]
+        @ [Mov (MemOffset (Reg Rdi, Imm 0), Reg R10)]
+        (* set r8 to point to right side of pair *)
+        @ [Mov (Reg R8, Reg Rdi)]
+        @ [Add (Reg R8, Imm 8)]
+        (* increment heap pointer *)
+        @ [Add (Reg Rdi, Imm 16)]
+        (* increment counter r9 and begin check *)
+        @ [Add (Reg R9, Imm 1)]
+        @ [Cmp (Reg R9, stack_address(-8))]
+        (* if <= repeat else add nil and go to continue label *)
+        @ [Jng variadic_loop_label]
+        @ [Mov (MemOffset (Reg R8, Imm 0), Imm nil_tag)]
+        @ [Jmp continue_label]
+
+        @ [Label continue_label]
+        (* @ [Mov (MemOffset (Reg Rsp, Imm (((List.length defn.args) + 2) * -8)), Reg R11)] *)
+        @ compile_expr defns variadic_ftab ((List.length defn.args + 3) * -8) defn.body
+        @ [Ret]
+
+      else
+
       [Label (function_label defn.name)]
       (* check that the correct number of args have been pushed, else lisp_error *)
         @ [Mov (Reg R8, stack_address(-8))]
