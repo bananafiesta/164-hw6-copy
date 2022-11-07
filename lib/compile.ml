@@ -443,27 +443,45 @@ let compile_defn : defn list -> defn -> directive list =
         
         (* R9 will hold current arg index *)
         @ [Mov (Reg R9, Imm (List.length defn.args))]
-        (* R8 will hold number of args pushed *)
-        @ [Cmp (Reg R8, Imm (List.length defn.args))]
-        @ [Mov (Reg R11, Reg Rdi)]
-        @ [Or (Reg R11, Imm pair_tag)]
-        @ [Mov (MemOffset (Reg Rsp, Imm (((List.length defn.args) + 2) * -8)), Reg R11)]
-        @ [Jg variadic_loop_label]
-        @ [Mov (Reg R11, Imm nil_tag)]
-        @ [Mov (MemOffset (Reg Rsp, Imm (((List.length defn.args) + 2) * -8)), Reg R11)]
+        
+        @ [Mov (Reg R11, stack_address(-8))]
+        (* @ [Cmp (Reg R8, Imm (List.length defn.args))] *)
+        
+        @ [Mov (Reg R8, Imm (((List.length defn.args) + 2) * -8))]
+        @ [Add (Reg R8, Reg Rsp)]
+        @ [Cmp (Reg R11, Imm (List.length defn.args))]
+        @ [Je continue_label]
+        (* do one iteration of loop before setting r8 and running checks and loops *)
+        @ [Mov (Reg R11, Reg R9)]
+        @ [Shl (Reg R11, Imm 3)]
+        @ [Mov (Reg R10, Reg Rsp)]
+        @ [Sub (Reg R10, Imm 8)]
+        @ [Sub (Reg R10, Reg R11)]
+        @ [Mov (Reg R10, MemOffset (Reg R10, Imm 0))]
+        @ [Mov (MemOffset (Reg Rdi, Imm 0), Reg R10)]
+        (* now that the value is added to the heap, we can overwrite its value on the stack with pointer to pair *)
+        @ [Mov (Reg R10, Reg Rdi)]
+        @ [Or (Reg R10, Imm pair_tag)]
+        @ [Mov (MemOffset (Reg R8, Imm 0), Reg R10)]
+
+        @ [Mov (Reg R8, Reg Rdi)]
+        @ [Add (Reg R8, Imm 8)]
+        @ [Add (Reg Rdi, Imm 16)]
+        @ [Add (Reg R9, Imm 1)]
+        @ [Cmp (Reg R9, stack_address(-8))]
+        @ [Jng variadic_loop_label]
         @ [Jmp continue_label]
 
         @ [Label variadic_loop_label]
         (* R10 will act as a temp register to hold memory values *)
         (* R8 will now store the current working pointer *)
-        (* @ [Mov (Reg R8, Reg Rdi)] *)
-        (* @ [Or (Reg R8, Imm pair_tag)] *)
         @ [Mov (Reg R10, Reg Rdi)]
         @ [Or (Reg R10, Imm pair_tag)]
         @ [Mov (MemOffset (Reg R8, Imm 0), Reg R10)]
         @ [Mov (Reg R11, Reg R9)]
         @ [Shl (Reg R11, Imm 3)]
         @ [Mov (Reg R10, Reg Rsp)]
+        @ [Sub (Reg R10, Imm 8)]
         @ [Sub (Reg R10, Reg R11)]
         (* R10 now holds address of current index of stack *)
         (* now add that to the left of the pair *)
@@ -479,11 +497,13 @@ let compile_defn : defn list -> defn -> directive list =
         @ [Cmp (Reg R9, stack_address(-8))]
         (* if <= repeat else add nil and go to continue label *)
         @ [Jng variadic_loop_label]
-        @ [Mov (MemOffset (Reg R8, Imm 0), Imm nil_tag)]
+        (* @ [Mov (MemOffset (Reg R8, Imm 0), Imm nil_tag)] *)
         @ [Jmp continue_label]
 
         @ [Label continue_label]
-        (* @ [Mov (MemOffset (Reg Rsp, Imm (((List.length defn.args) + 2) * -8)), Reg R11)] *)
+
+        (* @ [Mov (MemOffset (Reg Rsp, Imm (((List.length defn.args) + 2) * -8)), Reg Rax)] *)
+        @ [Mov (MemOffset (Reg R8, Imm 0), Imm nil_tag)]
         @ compile_expr defns variadic_ftab ((List.length defn.args + 3) * -8) defn.body
         @ [Ret]
 
