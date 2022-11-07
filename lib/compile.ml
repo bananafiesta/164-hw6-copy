@@ -443,12 +443,13 @@ let compile_defn : defn list -> defn -> directive list =
         
         (* R9 will hold current arg index *)
         @ [Mov (Reg R9, Imm (List.length defn.args))]
+
+        @ [Add (Reg R9, Imm 1)]
         
-        @ [Mov (Reg R11, stack_address(-8))]
-        (* @ [Cmp (Reg R8, Imm (List.length defn.args))] *)
-        
+
         @ [Mov (Reg R8, Imm (((List.length defn.args) + 2) * -8))]
         @ [Add (Reg R8, Reg Rsp)]
+        @ [Mov (Reg R11, stack_address(-8))]
         @ [Cmp (Reg R11, Imm (List.length defn.args))]
         @ [Je continue_label]
         (* do one iteration of loop before setting r8 and running checks and loops *)
@@ -475,6 +476,7 @@ let compile_defn : defn list -> defn -> directive list =
         @ [Label variadic_loop_label]
         (* R10 will act as a temp register to hold memory values *)
         (* R8 will now store the current working pointer *)
+        
         @ [Mov (Reg R10, Reg Rdi)]
         @ [Or (Reg R10, Imm pair_tag)]
         @ [Mov (MemOffset (Reg R8, Imm 0), Reg R10)]
@@ -497,12 +499,11 @@ let compile_defn : defn list -> defn -> directive list =
         @ [Cmp (Reg R9, stack_address(-8))]
         (* if <= repeat else add nil and go to continue label *)
         @ [Jng variadic_loop_label]
-        (* @ [Mov (MemOffset (Reg R8, Imm 0), Imm nil_tag)] *)
         @ [Jmp continue_label]
+        
+
 
         @ [Label continue_label]
-
-        (* @ [Mov (MemOffset (Reg Rsp, Imm (((List.length defn.args) + 2) * -8)), Reg Rax)] *)
         @ [Mov (MemOffset (Reg R8, Imm 0), Imm nil_tag)]
         @ compile_expr defns variadic_ftab ((List.length defn.args + 3) * -8) defn.body
         @ [Ret]
